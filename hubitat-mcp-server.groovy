@@ -563,7 +563,7 @@ def getGatewayConfig() {
         ],
         manage_diagnostics: [
             description: "Health monitoring, diagnostics, and radio details: hub metrics, memory history, garbage collection, device health, rule diagnostics, radio info, Z-Wave repair, and state snapshots.",
-            tools: ["get_set_hub_metrics", "get_memory_history", "force_garbage_collection", "device_health_check", "get_rule_diagnostics", "get_zwave_details", "get_zigbee_details", "zwave_repair", "list_captured_states", "delete_captured_state", "clear_captured_states"],
+            tools: ["get_set_hub_metrics", "get_memory_history", "force_garbage_collection", "device_health_check", "get_rule_diagnostics", "get_zwave_details", "get_zigbee_details", "zwave_repair", "remove_zwave_node", "refresh_zwave_node", "reinitialize_zwave_node", "list_captured_states", "delete_captured_state", "clear_captured_states"],
             summaries: [
                 get_set_hub_metrics: "Record/retrieve hub metrics (memory, temp, DB) with CSV trend history. Args: recordSnapshot, trendPoints",
                 get_memory_history: "Get free OS memory and CPU load history. Returns most recent entries with summary stats. Args: limit (default 100, 0 for all). Requires Hub Admin Read",
@@ -573,6 +573,9 @@ def getGatewayConfig() {
                 get_zwave_details: "Z-Wave radio info (firmware, SDK, device count). Requires Hub Admin Read",
                 get_zigbee_details: "Zigbee radio info (channel, PAN ID, device count). Requires Hub Admin Read",
                 zwave_repair: "Z-Wave network repair (⚠️ DISRUPTIVE, 5-30 min, devices unresponsive). Args: confirm=true",
+                remove_zwave_node: "Remove a Z-Wave node from the hub (for ghost/FAILED/NOT_RESPONDING nodes). Args: nodeId, confirm=true. Requires Hub Admin Write",
+                refresh_zwave_node: "Ask a Z-Wave node to refresh its status (non-destructive probe). Args: nodeId. Requires Hub Admin Write",
+                reinitialize_zwave_node: "Reinitialize a Z-Wave node (re-asserts node in radio tables — sometimes unsticks ghosts). Args: nodeId, confirm=true. Requires Hub Admin Write",
                 list_captured_states: "List saved device state snapshots",
                 delete_captured_state: "Delete a specific captured state. Args: stateId",
                 clear_captured_states: "Clear all captured device states"
@@ -586,6 +589,9 @@ def getGatewayConfig() {
                 get_zwave_details: "zwave mesh network frequency firmware 908mhz 700 800 series",
                 get_zigbee_details: "zigbee mesh network channel pan coordinator 2400mhz",
                 zwave_repair: "fix heal network mesh routing neighbor rebuild",
+                remove_zwave_node: "delete remove ghost failed orphan stuck zwave node exclude kill",
+                refresh_zwave_node: "ping probe refresh update zwave node status check alive",
+                reinitialize_zwave_node: "reinit reinitialize re-include ghost failed node unstick wake zwave",
                 list_captured_states: "saved snapshot bookmark remember device values",
                 delete_captured_state: "remove saved snapshot bookmark",
                 clear_captured_states: "remove all saved snapshots bookmarks"
@@ -1240,6 +1246,56 @@ Requires Hub Admin Write.""",
                 required: ["confirm"]
             ]
         ],
+        [
+            name: "remove_zwave_node",
+            description: """⚠️ DESTRUCTIVE (radio-level): Remove a Z-Wave node from the hub's radio tables.
+
+USE FOR: Ghost nodes (deviceId=null in get_zwave_node_details), FAILED or NOT_RESPONDING nodes that can no longer be excluded the normal way. This calls the same endpoint as the 'Remove' button on the Z-Wave Details page.
+
+BEHAVIOR: Returns quickly. Removal may take 10-60s to complete in the background. Re-query get_zwave_node_details to confirm the node is gone.
+
+PRE-FLIGHT: 1) Ensure backup <24h old 2) Confirm the node is actually dead/ghost via get_zwave_node_details 3) Get explicit user confirmation 4) Set confirm=true
+Requires Hub Admin Write.""",
+            inputSchema: [
+                type: "object",
+                properties: [
+                    nodeId: [type: ["integer", "string"], description: "Z-Wave node ID to remove (decimal, e.g. 51)"],
+                    confirm: [type: "boolean", description: "REQUIRED: Must be true. Confirms backup exists and user approved removal."]
+                ],
+                required: ["nodeId", "confirm"]
+            ]
+        ],
+        [
+            name: "refresh_zwave_node",
+            description: """Ask a Z-Wave node to refresh its status. Non-destructive probe — the hub pings the node and updates its lastActivity/route info.
+
+USE FOR: Checking whether a node believed to be offline is actually reachable, or forcing a stats update before running get_zwave_node_details.
+Requires Hub Admin Write.""",
+            inputSchema: [
+                type: "object",
+                properties: [
+                    nodeId: [type: ["integer", "string"], description: "Z-Wave node ID to refresh"]
+                ],
+                required: ["nodeId"]
+            ]
+        ],
+        [
+            name: "reinitialize_zwave_node",
+            description: """⚠️ DISRUPTIVE (per-node): Reinitialize a single Z-Wave node. Re-asserts the node's entry in the radio's routing tables.
+
+USE FOR: Stuck/ghost nodes where remove_zwave_node has failed. Sometimes unsticks nodes that Remove can't clear. Follow up with remove_zwave_node if the node remains in FAILED state.
+
+PRE-FLIGHT: 1) Ensure backup <24h old 2) Try remove_zwave_node first 3) Get explicit user confirmation 4) Set confirm=true
+Requires Hub Admin Write.""",
+            inputSchema: [
+                type: "object",
+                properties: [
+                    nodeId: [type: ["integer", "string"], description: "Z-Wave node ID to reinitialize"],
+                    confirm: [type: "boolean", description: "REQUIRED: Must be true. Confirms backup exists and user approved the reinitialize."]
+                ],
+                required: ["nodeId", "confirm"]
+            ]
+        ],
         // Device Admin
         [
             name: "delete_device",
@@ -1666,6 +1722,9 @@ def executeTool(toolName, args) {
         case "reboot_hub": return toolRebootHub(args)
         case "shutdown_hub": return toolShutdownHub(args)
         case "zwave_repair": return toolZwaveRepair(args)
+        case "remove_zwave_node": return toolRemoveZwaveNode(args)
+        case "refresh_zwave_node": return toolRefreshZwaveNode(args)
+        case "reinitialize_zwave_node": return toolReinitializeZwaveNode(args)
 
         // Device Admin
         case "delete_device": return toolDeleteDevice(args)
@@ -5925,6 +5984,105 @@ def toolZwaveRepair(args) {
             success: false,
             error: "Z-Wave repair failed: ${e.message}",
             note: "The Z-Wave repair could not be started. Check Hub Security credentials or try starting it manually from the Hubitat web UI at Settings → Z-Wave Details → Repair."
+        ]
+    }
+}
+
+/**
+ * Validate a Z-Wave node id parameter. Accepts integer or numeric string.
+ * Returns the node id as a String (URL-form body value).
+ */
+private String normalizeZwaveNodeId(args) {
+    def raw = args?.nodeId
+    if (raw == null || raw.toString().trim() == "") {
+        throw new IllegalArgumentException("nodeId is required")
+    }
+    def asStr = raw.toString().trim()
+    if (!asStr.isInteger()) {
+        throw new IllegalArgumentException("nodeId must be an integer (decimal node id, e.g. 51). Got: ${asStr}")
+    }
+    int n = asStr.toInteger()
+    if (n < 1 || n > 232) {
+        throw new IllegalArgumentException("nodeId ${n} is outside valid Z-Wave range (1-232)")
+    }
+    return n.toString()
+}
+
+def toolRemoveZwaveNode(args) {
+    requireHubAdminWrite(args.confirm)
+    String nodeIdStr = normalizeZwaveNodeId(args)
+
+    mcpLog("info", "hub-admin", "Z-Wave node remove initiated by MCP: nodeId=${nodeIdStr}")
+
+    try {
+        def result = hubInternalPostForm("/hub/zwave/nodeRemove", [zwaveNodeId: nodeIdStr])
+        return [
+            success: true,
+            message: "Z-Wave node remove request submitted for node ${nodeIdStr}.",
+            nodeId: nodeIdStr as Integer,
+            note: "Removal runs in the background (typically 10-60s). Call get_zwave_node_details after ~30s to confirm the node is gone. If the node still appears in FAILED state after a retry, try reinitialize_zwave_node first, then retry remove.",
+            httpStatus: result?.status,
+            response: result?.data?.toString()?.take(500)
+        ]
+    } catch (Exception e) {
+        mcpLog("error", "hub-admin", "Z-Wave node remove failed: ${e.message}")
+        return [
+            success: false,
+            nodeId: nodeIdStr as Integer,
+            error: "Z-Wave node remove failed: ${e.message}",
+            note: "If the hub's UI Remove button also fails, the node is likely stuck at the radio level. Try reinitialize_zwave_node then remove again."
+        ]
+    }
+}
+
+def toolRefreshZwaveNode(args) {
+    requireHubAdminWrite(true)
+    String nodeIdStr = normalizeZwaveNodeId(args)
+
+    mcpLog("info", "hub-admin", "Z-Wave node refresh initiated by MCP: nodeId=${nodeIdStr}")
+
+    try {
+        def result = hubInternalPostForm("/hub/zwave/refreshNodeStatus", [zwaveNodeId: nodeIdStr])
+        return [
+            success: true,
+            nodeId: nodeIdStr as Integer,
+            message: "Refresh request sent to Z-Wave node ${nodeIdStr}.",
+            note: "Call get_zwave_node_details after a few seconds to see updated lastActivity / route / msgCount.",
+            httpStatus: result?.status,
+            response: result?.data?.toString()?.take(500)
+        ]
+    } catch (Exception e) {
+        mcpLog("error", "hub-admin", "Z-Wave node refresh failed: ${e.message}")
+        return [
+            success: false,
+            nodeId: nodeIdStr as Integer,
+            error: "Z-Wave node refresh failed: ${e.message}"
+        ]
+    }
+}
+
+def toolReinitializeZwaveNode(args) {
+    requireHubAdminWrite(args.confirm)
+    String nodeIdStr = normalizeZwaveNodeId(args)
+
+    mcpLog("info", "hub-admin", "Z-Wave node reinitialize initiated by MCP: nodeId=${nodeIdStr}")
+
+    try {
+        def result = hubInternalPostForm("/hub/zwave/nodeReinitialize", [zwaveNodeId: nodeIdStr])
+        return [
+            success: true,
+            nodeId: nodeIdStr as Integer,
+            message: "Reinitialize request sent to Z-Wave node ${nodeIdStr}.",
+            note: "Node may briefly appear unresponsive. If goal is removal of a ghost node, call remove_zwave_node after this completes.",
+            httpStatus: result?.status,
+            response: result?.data?.toString()?.take(500)
+        ]
+    } catch (Exception e) {
+        mcpLog("error", "hub-admin", "Z-Wave node reinitialize failed: ${e.message}")
+        return [
+            success: false,
+            nodeId: nodeIdStr as Integer,
+            error: "Z-Wave node reinitialize failed: ${e.message}"
         ]
     }
 }
