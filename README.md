@@ -394,7 +394,7 @@ Source code is automatically backed up before any modify/delete operation.
 
 | Tool | Description |
 |------|-------------|
-| `get_hub_logs` | Hub log entries (most recent first) with level/source filters and server-side deviceId/appId scoping |
+| `get_hub_logs` | Hub log entries with level/source filtering |
 | `get_device_history` | Up to 7 days of device event history |
 | `get_debug_logs` | Retrieve MCP debug log entries |
 | `clear_debug_logs` | Clear all MCP debug logs |
@@ -406,7 +406,7 @@ Monitoring tools require Hub Admin Read to be enabled.
 </details>
 
 <details>
-<summary><b>manage_diagnostics</b> (9) — Diagnostics, performance, radio details, and state capture</summary>
+<summary><b>manage_diagnostics</b> (10) — Diagnostics, performance, radio details, and state capture</summary>
 
 | Tool | Description |
 |------|-------------|
@@ -414,6 +414,7 @@ Monitoring tools require Hub Admin Read to be enabled.
 | `device_health_check` | Find stale/offline devices |
 | `get_rule_diagnostics` | Comprehensive diagnostics for a specific rule |
 | `get_zwave_details` | Z-Wave radio info (firmware, devices) |
+| `get_zwave_node_details` | Per-node Z-Wave mesh diagnostics: route, neighbors, RTT, RSSI, packet error rate, state. Cross-referenced with device labels. |
 | `get_zigbee_details` | Zigbee radio info (channel, PAN ID, devices) |
 | `zwave_repair` | Z-Wave network repair (5-30 min) |
 | `list_captured_states` | List saved device state snapshots |
@@ -1407,7 +1408,6 @@ For easier bug reporting:
 
 ## Version History
 
-- **v0.9.2** - Enriched `list_devices` summary (new fields: `disabled`, `deviceNetworkId`, `lastActivity`, `parentDeviceId`) + server-side `filter` arg (`enabled` / `disabled` / `stale:<hours>`) applied before pagination — closes the N+1 roundtrip problem for common bulk questions. Fix `get_hub_logs` ordering (now returns most recent entries first; previously returned oldest from the ring buffer) + new `deviceId` / `appId` server-side scope args (~93% payload reduction when scoped).
 - **v0.9.1** - New `search_tools`: BM25 natural language search across all 74 MCP tools (core + gateway sub-tools). Searches tool names, descriptions, and parameter names. Returns matching tools ranked by relevance with gateway attribution so the LLM knows how to call them. Inspired by FastMCP 3.1 Tool Search transform. 74 MCP tools total (31 on `tools/list`).
 - **v0.9.0** - New tools: `get_performance_stats` (device/app performance stats — method call counts, % busy, cumulative total ms, state size, events, large state flag; sortable by `pct`/`count`/`stateSize`/`totalMs`/`name`) and `get_hub_jobs` (scheduled/running jobs, hub actions), both in `manage_logs` gateway. Enhanced `get_memory_history`: `limit` parameter (default 100) to prevent response-too-large errors, now includes Java heap (`totalJavaKB`, `freeJavaKB`) and direct/NIO buffer memory (`directJavaKB`) per entry with min/max tracking in summary for leak detection. 73 MCP tools total (30 on `tools/list`).
 - **v0.8.7** - Add memory diagnostic tools: `get_memory_history` and `force_garbage_collection`, both in `manage_diagnostics` gateway. 71 MCP tools total.

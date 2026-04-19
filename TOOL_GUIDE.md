@@ -10,7 +10,7 @@ As of v0.8.0, the server uses **domain-named gateways** to organize 48 lesser-us
 1. Call the gateway with no arguments to see full parameter schemas for all its tools
 2. Call with `tool='<tool_name>'` and `args={...}` to execute a specific tool
 
-**Gateways:** `manage_rules_admin` (5), `manage_hub_variables` (3), `manage_rooms` (5), `manage_destructive_hub_ops` (3), `manage_apps_drivers` (6), `manage_app_driver_code` (7), `manage_logs` (6), `manage_diagnostics` (9), `manage_files` (4)
+**Gateways:** `manage_rules_admin` (5), `manage_hub_variables` (3), `manage_rooms` (5), `manage_destructive_hub_ops` (3), `manage_apps_drivers` (6), `manage_app_driver_code` (7), `manage_logs` (6), `manage_diagnostics` (10), `manage_files` (4)
 
 All safety gates (Hub Admin Read/Write, confirm, backup checks) are preserved — they are enforced in the handler functions, not the dispatch layer.
 
@@ -260,9 +260,7 @@ Files stored locally on hub at `http://<HUB_IP>/local/<filename>`
 
 **list_devices:**
 - Use `detailed=false` for initial discovery
-- Summary response (always returned) includes: id, name (driver type), label, room, `disabled`, `deviceNetworkId`, `lastActivity`, `parentDeviceId` (v0.10.0+) — enough for most filtering without `get_device` round-trips. Summary mode also returns `currentStates`; detailed mode replaces it with `capabilities`/`attributes`/`commands`. To count children of a parent device, group the response on `parentDeviceId` client-side
-- Use `filter` for server-side narrowing before pagination: `'enabled'`, `'disabled'`, or `'stale:<hours>'` (e.g. `'stale:24'` = devices with no activity in the last 24h). Use this for boolean and time-relative queries; leave name/label/capability filtering to client-side (AI scans returned JSON)
-- With `detailed=true`, paginate: 20-30 devices per request. Detailed adds capabilities, attributes, commands
+- With `detailed=true`, paginate: 20-30 devices per request
 - Make tool calls sequentially, not in parallel
 
 **get_device_events:**
@@ -270,10 +268,8 @@ Files stored locally on hub at `http://<HUB_IP>/local/<filename>`
 - Higher values (100+) may cause delays on busy devices
 
 **get_hub_logs:**
-- Returns most recent entries first
 - Default 100 entries, max 500
 - Use level and source filters to narrow results
-- For single-device or single-app logs, pass `deviceId` or `appId` — this is a server-side scope filter (mutually exclusive) and is much cheaper than post-filtering the full buffer
 
 **get_device_history:**
 - Up to 7 days of history

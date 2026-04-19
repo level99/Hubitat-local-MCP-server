@@ -115,7 +115,7 @@ The server uses a **category gateway proxy** pattern to reduce the MCP `tools/li
 | `manage_apps_drivers` | 6 | List/get apps, drivers, backups (read-only) |
 | `manage_app_driver_code` | 7 | Install/update/delete apps+drivers, restore backup (write) |
 | `manage_logs` | 8 | Logs, monitoring, performance stats, hub jobs, debug tools |
-| `manage_diagnostics` | 9 | Diagnostics, state capture, zwave/zigbee details, zwave repair |
+| `manage_diagnostics` | 10 | Diagnostics, state capture, zwave/zigbee details, per-node Z-Wave mesh, zwave repair |
 | `manage_files` | 4 | File Manager CRUD |
 
 **22 core tools:** `list_devices`, `get_device`, `get_attribute`, `send_command`, `get_device_events`, `list_rules`, `get_rule`, `create_rule`, `update_rule`, `update_device`, `manage_virtual_device` (action enum: "create", "delete"), `list_virtual_devices`, `get_hub_info` (comprehensive: hardware, health — memory, temp, DB size — and MCP stats always available; PII/location data — name, IP, timezone, coordinates, zip — gated behind Hub Admin Read), `get_modes`, `set_mode`, `get_hsm_status`, `set_hsm`, `create_hub_backup`, `check_for_update`, `generate_bug_report`, `get_tool_guide`, `search_tools` (BM25 natural language search across all tools)
@@ -491,7 +491,6 @@ These are undocumented endpoints on the Hubitat hub at `http://127.0.0.1:8080`:
 | `/hub/backupDB` with query `fileName=latest` | Creates fresh backup and returns .lzf binary |
 | `/hub/fileManager/json` | Lists all files in File Manager (JSON array: name, size, date) |
 | `/hub2/roomsList` | List of rooms as JSON (alternative to `getRooms()` SDK method) |
-| `/logs/past/json` | Hub log buffer as JSON array of tab-delimited strings (chronological order, oldest first — reverse client-side for newest-first). Accepts optional `?type=dev&id=<deviceId>` or `?type=app&id=<appId>` to scope server-side to a single source. |
 
 **Write endpoints (POST):**
 | Path | Body | Purpose |

@@ -541,7 +541,7 @@ def getGatewayConfig() {
             description: "System logs, performance stats, and log settings: hub logs, device/app performance stats, scheduled jobs, device event history, MCP debug logs, and log level configuration.",
             tools: ["get_hub_logs", "get_device_history", "get_performance_stats", "get_hub_jobs", "get_debug_logs", "clear_debug_logs", "set_log_level", "get_logging_status"],
             summaries: [
-                get_hub_logs: "Get Hubitat system logs, most recent first. Args: level (debug/info/warn/error), source (substring), deviceId or appId (server-side scope), limit",
+                get_hub_logs: "Get Hubitat system logs. Args: level (debug/info/warn/error), source, limit",
                 get_device_history: "Get device event history (up to 7 days). Args: deviceId, hours, attribute",
                 get_performance_stats: "Get device/app performance stats (count, % busy, total ms, state size, events, large state flag). Args: type (device/app/both), sortBy (pct/count/stateSize/totalMs/name), limit",
                 get_hub_jobs: "Get scheduled jobs, running jobs, and hub actions",
@@ -551,7 +551,7 @@ def getGatewayConfig() {
                 get_logging_status: "Get logging system status and capacity"
             ],
             searchHints: [
-                get_hub_logs: "errors warnings messages trace syslog output print recent latest newest device app scope",
+                get_hub_logs: "errors warnings messages trace syslog output print",
                 get_device_history: "events timeline past activity what happened sensor",
                 get_performance_stats: "slow cpu busy resource usage hog bottleneck",
                 get_hub_jobs: "scheduled cron timer recurring what is running next automation",
@@ -563,7 +563,7 @@ def getGatewayConfig() {
         ],
         manage_diagnostics: [
             description: "Health monitoring, diagnostics, and radio details: hub metrics, memory history, garbage collection, device health, rule diagnostics, radio info, Z-Wave repair, and state snapshots.",
-            tools: ["get_set_hub_metrics", "get_memory_history", "force_garbage_collection", "device_health_check", "get_rule_diagnostics", "get_zwave_details", "get_zigbee_details", "zwave_repair", "list_captured_states", "delete_captured_state", "clear_captured_states"],
+            tools: ["get_set_hub_metrics", "get_memory_history", "force_garbage_collection", "device_health_check", "get_rule_diagnostics", "get_zwave_details", "get_zwave_node_details", "get_zigbee_details", "zwave_repair", "list_captured_states", "delete_captured_state", "clear_captured_states"],
             summaries: [
                 get_set_hub_metrics: "Record/retrieve hub metrics (memory, temp, DB) with CSV trend history. Args: recordSnapshot, trendPoints",
                 get_memory_history: "Get free OS memory and CPU load history. Returns most recent entries with summary stats. Args: limit (default 100, 0 for all). Requires Hub Admin Read",
@@ -571,6 +571,7 @@ def getGatewayConfig() {
                 device_health_check: "Check all devices for stale/offline status",
                 get_rule_diagnostics: "Comprehensive rule diagnostics. Args: ruleId",
                 get_zwave_details: "Z-Wave radio info (firmware, SDK, device count). Requires Hub Admin Read",
+                get_zwave_node_details: "Per-node Z-Wave mesh diagnostics: route, neighbors, RTT, RSSI, packet error rate, state, security. Cross-referenced with Hubitat device labels. Requires Hub Admin Read",
                 get_zigbee_details: "Zigbee radio info (channel, PAN ID, device count). Requires Hub Admin Read",
                 zwave_repair: "Z-Wave network repair (⚠️ DISRUPTIVE, 5-30 min, devices unresponsive). Args: confirm=true",
                 list_captured_states: "List saved device state snapshots",
@@ -584,6 +585,7 @@ def getGatewayConfig() {
                 device_health_check: "stale offline dead unresponsive battery not reporting",
                 get_rule_diagnostics: "automation troubleshoot broken not working debug why",
                 get_zwave_details: "zwave mesh network frequency firmware 908mhz 700 800 series",
+                get_zwave_node_details: "zwave mesh node route neighbor rssi rtt packet error per routing topology ghost slow laggy",
                 get_zigbee_details: "zigbee mesh network channel pan coordinator 2400mhz",
                 zwave_repair: "fix heal network mesh routing neighbor rebuild",
                 list_captured_states: "saved snapshot bookmark remember device values",
@@ -707,16 +709,13 @@ def getAllToolDefinitions() {
 
 DEVICE AUTHORIZATION: Exact name match → use directly. No exact match → suggest similar, ASK USER before using. NEVER control unconfirmed devices (HVAC/locks risk). Report tool failures; don't silently fall back to existing devices.
 
-Use detailed=false for discovery; detailed=true with limit=20-30. Sequential calls only.
-
-Summary response always includes: id, name (driver type), label (user name), room, disabled (bool), deviceNetworkId, lastActivity (ISO timestamp), parentDeviceId (or null). Summary mode also returns currentStates (dict); detailed mode replaces currentStates with capabilities, attributes, and commands. Use filter to narrow on common patterns (much more efficient than fetching all and client-side filtering). To count children of a parent device, group the response by parentDeviceId.""",
+Use detailed=false for discovery; detailed=true with limit=20-30. Sequential calls only.""",
             inputSchema: [
                 type: "object",
                 properties: [
                     detailed: [type: "boolean", description: "Include full device details (capabilities, all attributes, commands). WARNING: Resource-intensive for large device counts. Use with pagination (limit parameter) for best performance."],
                     offset: [type: "integer", description: "Start from device at this index (0-based). Use for pagination.", default: 0],
-                    limit: [type: "integer", description: "Maximum number of devices to return. Recommended: 20-30 for detailed=true, higher values may slow hub.", default: 0],
-                    filter: [type: "string", description: "Server-side filter (applied before pagination). 'all' (default) | 'enabled' | 'disabled' | 'stale:<hours>' (e.g. 'stale:24' for devices with no activity in the last 24 hours; never-reported devices count as stale). For filtering by room/label/capability, omit filter and use client-side logic on the returned list."]
+                    limit: [type: "integer", description: "Maximum number of devices to return. Recommended: 20-30 for detailed=true, higher values may slow hub.", default: 0]
                 ]
             ]
         ],
@@ -1085,6 +1084,20 @@ Verify rule after creation.""",
             ]
         ],
         [
+            name: "get_zwave_node_details",
+            description: """Per-node Z-Wave mesh diagnostics: route, neighbors, RTT, RSSI, packet error rate, node state, security, activity. Cross-referenced with Hubitat device labels/rooms so the AI can report in human terms ("Master Bath Overhead routes through Kitchen Lamp 2") instead of raw node IDs.
+
+Use this (not `get_zwave_details`) when troubleshooting individual device mesh issues: bad routes, high latency, devices that keep changing routes, ghost nodes, dead nodes.
+
+Returns radio-level health flags plus a nodes array with per-node diagnostics. Summary field includes counts by nodeState for quick mesh health assessment. Filter client-side on the returned nodes — e.g. "show me only failing nodes", "sort by per descending", "which route through node X".
+
+Requires Hub Admin Read.""",
+            inputSchema: [
+                type: "object",
+                properties: [:]
+            ]
+        ],
+        [
             name: "get_zigbee_details",
             description: "Get Zigbee radio info: channel, PAN ID, firmware, devices. Requires Hub Admin Read.",
             inputSchema: [
@@ -1115,14 +1128,12 @@ Verify rule after creation.""",
         ],
         [
             name: "get_hub_logs",
-            description: "Get Hubitat system logs, most recent first. Filter by level, source substring, or scope server-side to a single device or app. Default 100 entries, max 500. Requires Hub Admin Read.",
+            description: "Get Hubitat system logs. Filter by level/source. Default 100 entries, max 500. Requires Hub Admin Read.",
             inputSchema: [
                 type: "object",
                 properties: [
                     level: [type: "string", description: "Filter by log level: trace, debug, info, warn, error. Default: all levels.", enum: ["trace", "debug", "info", "warn", "error"]],
-                    source: [type: "string", description: "Filter by source/app name (case-insensitive substring match against the log entry)"],
-                    deviceId: [type: "string", description: "Scope to a single device's log entries (server-side filter, mutually exclusive with appId)"],
-                    appId: [type: "string", description: "Scope to a single app's log entries (server-side filter, mutually exclusive with deviceId)"],
+                    source: [type: "string", description: "Filter by source/app name (case-insensitive substring match)"],
                     limit: [type: "integer", description: "Max entries to return. Default: 100, max: 500.", default: 100]
                 ]
             ]
@@ -1597,7 +1608,7 @@ Tell user driver name/ID, warn it's permanent, get confirmation. Requires Hub Ad
 def executeTool(toolName, args) {
     switch (toolName) {
         // Device Tools
-        case "list_devices": return toolListDevices(args.detailed, args.offset ?: 0, args.limit ?: 0, args.filter)
+        case "list_devices": return toolListDevices(args.detailed, args.offset ?: 0, args.limit ?: 0)
         case "get_device": return toolGetDevice(args.deviceId)
         case "send_command": return toolSendCommand(args.deviceId, args.command, args.parameters)
         case "get_device_events": return toolGetDeviceEvents(args.deviceId, args.limit != null ? args.limit : 10)
@@ -1648,6 +1659,7 @@ def executeTool(toolName, args) {
         case "list_hub_apps": return toolListHubApps(args)
         case "list_hub_drivers": return toolListHubDrivers(args)
         case "get_zwave_details": return toolGetZwaveDetails(args)
+        case "get_zwave_node_details": return toolGetZwaveNodeDetails(args)
         case "get_zigbee_details": return toolGetZigbeeDetails(args)
         // get_hub_health merged into get_hub_info
 
@@ -1728,7 +1740,7 @@ def executeTool(toolName, args) {
 
 // ==================== DEVICE TOOLS ====================
 
-def toolListDevices(detailed, offset, limit, filter = null) {
+def toolListDevices(detailed, offset, limit) {
     // Combine selected devices and MCP-managed child devices (virtual devices)
     def allDevices = (selectedDevices ?: []).toList()
     def childDevs = getChildDevices() ?: []
@@ -1744,52 +1756,9 @@ def toolListDevices(detailed, offset, limit, filter = null) {
         return [devices: [], message: "No devices selected for MCP access and no MCP-managed virtual devices", total: 0]
     }
 
-    def unfilteredTotal = allDevices.size()
-
-    // Parse and apply server-side filter BEFORE pagination so limit/offset respect the filtered set.
-    // Supported filters: null/"all" (default), "enabled", "disabled", "stale:<hours>" (e.g. "stale:24").
-    // Filtering happens in-memory against device properties already loaded, no extra hub API calls.
-    def filterType = null
-    def staleMs = 0L
-    if (filter && filter != "all") {
-        if (filter == "enabled" || filter == "disabled") {
-            filterType = filter
-        } else if (filter.startsWith("stale:")) {
-            def hoursStr = filter.substring(6).trim()
-            def hours
-            try {
-                hours = hoursStr as Double
-            } catch (Exception e) {
-                throw new IllegalArgumentException("Invalid stale filter '${filter}'. Expected format: stale:<hours> (e.g. stale:24)")
-            }
-            if (hours <= 0) {
-                throw new IllegalArgumentException("stale filter hours must be positive, got: ${hours}")
-            }
-            filterType = "stale"
-            staleMs = (long)(hours * 3600000L)
-        } else {
-            throw new IllegalArgumentException("Invalid filter '${filter}'. Must be one of: all, enabled, disabled, stale:<hours>")
-        }
-    }
-
-    if (filterType) {
-        def nowMs = now()
-        allDevices = allDevices.findAll { d ->
-            switch (filterType) {
-                case "enabled": return !isDeviceDisabled(d)
-                case "disabled": return isDeviceDisabled(d)
-                case "stale":
-                    def la = safeLastActivity(d)
-                    if (la == null) return true  // never-reported device counts as stale
-                    return (nowMs - la.time) >= staleMs
-                default: return true
-            }
-        }
-    }
-
     def totalCount = allDevices.size()
 
-    // Apply pagination (post-filter)
+    // Apply pagination
     def startIndex = offset ?: 0
     if (startIndex < 0) startIndex = 0
     def endIndex = totalCount
@@ -1798,19 +1767,17 @@ def toolListDevices(detailed, offset, limit, filter = null) {
     }
 
     // Validate offset
-    if (totalCount > 0 && startIndex >= totalCount) {
+    if (startIndex >= totalCount) {
         return [
             devices: [],
             total: totalCount,
-            unfilteredTotal: unfilteredTotal,
             offset: startIndex,
             limit: limit ?: 0,
-            filter: filter ?: "all",
-            message: "Offset ${startIndex} exceeds filtered device count ${totalCount}"
+            message: "Offset ${startIndex} exceeds total device count ${totalCount}"
         ]
     }
 
-    def pagedDevices = totalCount > 0 ? allDevices.subList(startIndex, endIndex) : []
+    def pagedDevices = allDevices.subList(startIndex, endIndex)
     def childDeviceIds = childDevs.collect { it.id.toString() } as Set
 
     def devices = pagedDevices.collect { device ->
@@ -1819,11 +1786,7 @@ def toolListDevices(detailed, offset, limit, filter = null) {
             id: deviceIdStr,
             name: device.name,
             label: device.label ?: device.name,
-            room: device.roomName,
-            disabled: isDeviceDisabled(device),
-            deviceNetworkId: safeDni(device),
-            lastActivity: formatLastActivity(safeLastActivity(device)),
-            parentDeviceId: safeParentDeviceId(device)
+            room: device.roomName
         ]
         if (childDeviceIds.contains(deviceIdStr)) {
             info.mcpManaged = true
@@ -1851,10 +1814,6 @@ def toolListDevices(detailed, offset, limit, filter = null) {
         count: devices.size(),
         total: totalCount
     ]
-    if (filter && filter != "all") {
-        result.filter = filter
-        result.unfilteredTotal = unfilteredTotal
-    }
 
     // Include pagination info if pagination was used
     if (limit && limit > 0) {
@@ -1867,71 +1826,6 @@ def toolListDevices(detailed, offset, limit, filter = null) {
     }
 
     return result
-}
-
-/**
- * Check if a device is disabled. Hubitat's device object exposes several property names
- * across firmware versions; try the most common ones and fall back to false.
- */
-private Boolean isDeviceDisabled(device) {
-    try {
-        if (device.hasProperty("disabled") && device.disabled != null) return device.disabled == true
-    } catch (Exception ignore) {}
-    try {
-        return device.isDisabled() == true
-    } catch (Exception ignore) {}
-    try {
-        if (device.hasProperty("status") && device.status?.toString()?.toLowerCase() == "disabled") return true
-    } catch (Exception ignore) {}
-    return false
-}
-
-/**
- * Safely fetch device.deviceNetworkId — some virtual devices or mid-transition states can throw.
- */
-private String safeDni(device) {
-    try {
-        return device.deviceNetworkId?.toString()
-    } catch (Exception ignore) {
-        return null
-    }
-}
-
-/**
- * Safely fetch device.parentDeviceId — direct property access, not a hub call.
- * Cheap enough to include in the summary response. Consumers can derive child
- * counts client-side by grouping the devices list on this field, avoiding the
- * per-device getChildDevices() call that childCount required in earlier versions.
- */
-private String safeParentDeviceId(device) {
-    try {
-        return device.parentDeviceId?.toString()
-    } catch (Exception ignore) {
-        return null
-    }
-}
-
-/**
- * Safely fetch device.getLastActivity() — returns Date or null. Some drivers don't set this.
- */
-private Date safeLastActivity(device) {
-    try {
-        return device.getLastActivity()
-    } catch (Exception ignore) {
-        return null
-    }
-}
-
-/**
- * Format a Date as ISO 8601 string, or null if the Date is null.
- */
-private String formatLastActivity(Date d) {
-    if (d == null) return null
-    try {
-        return d.format("yyyy-MM-dd'T'HH:mm:ssXXX")
-    } catch (Exception ignore) {
-        return d.toString()
-    }
 }
 
 def toolGetDevice(deviceId) {
@@ -5041,6 +4935,109 @@ def toolGetZwaveDetails(args) {
     return result
 }
 
+/**
+ * Per-node Z-Wave mesh diagnostics. Pulls /hub/zwaveDetails/json and enriches each
+ * node entry with the Hubitat device label + room by cross-referencing the `deviceId`
+ * field against the MCP's accessible devices (selected + MCP-managed child devices).
+ *
+ * Fields per node (mirror of what /hub/zwaveDetails/json returns, plus enrichment):
+ *   nodeId, deviceId, deviceLabel, deviceRoom, nodeState, security,
+ *   listening, beaming, init, route, neighbors, routeChanges,
+ *   averageRtt, lwrRssi, per, msgCount, lastTime, lastSent, lastReceived,
+ *   zwaveType, zwaveManufacturer, deviceType (driver-reported Z-Wave classifications)
+ *
+ * Top-level: nodes array, count, radio health flags, summary stats by nodeState.
+ * Summary is computed on the hub side (cheap, avoids AI counting 33 entries).
+ */
+def toolGetZwaveNodeDetails(args) {
+    requireHubAdminRead()
+
+    def responseText
+    def endpoint = "/hub/zwaveDetails/json"
+    try {
+        responseText = hubInternalGet(endpoint)
+    } catch (Exception e) {
+        mcpLog("error", "hub-admin", "Z-Wave node details fetch failed: ${e.message}")
+        return [success: false, error: "Z-Wave details endpoint unreachable: ${e.message}", endpoint: endpoint, note: "Endpoint is firmware 2.3.7.1+. Older firmware does not expose per-node details."]
+    }
+
+    if (!responseText) {
+        return [success: false, error: "Empty response from ${endpoint}", note: "Hub internal API may be transiently unavailable."]
+    }
+
+    def parsed
+    try {
+        parsed = new groovy.json.JsonSlurper().parseText(responseText)
+    } catch (Exception parseErr) {
+        return [success: false, error: "Failed to parse Z-Wave details: ${parseErr.message}", note: "Hubitat firmware may have changed the endpoint format."]
+    }
+
+    def rawNodes = parsed?.nodes ?: []
+    def stateCounts = [:]
+    def nodes = rawNodes.collect { n ->
+        def did = n?.deviceId != null ? n.deviceId.toString() : null
+        def device = did ? findDevice(did) : null
+        def state = (n?.nodeState ?: "unknown").toString()
+        stateCounts[state] = (stateCounts[state] ?: 0) + 1
+        return [
+            nodeId: n?.nodeId,
+            deviceId: did,
+            deviceLabel: device?.label ?: device?.name ?: n?.deviceName,
+            deviceRoom: safeDeviceRoom(device),
+            nodeState: n?.nodeState,
+            security: n?.security,
+            listening: n?.listening == true,
+            beaming: n?.beaming == true,
+            init: n?.init == true,
+            route: n?.route,
+            neighbors: n?.neighbors,
+            routeChanges: n?.routeChanges,
+            averageRtt: n?.averageRtt,
+            lwrRssi: n?.lwrRssi,
+            per: n?.per,
+            msgCount: n?.msgCount,
+            lastTime: n?.lastTime,
+            lastSent: n?.lastSent,
+            lastReceived: n?.lastReceived,
+            zwaveType: n?.zwaveType,
+            zwaveManufacturer: n?.zwaveManufacturer,
+            deviceType: n?.deviceType
+        ]
+    }
+
+    def result = [
+        nodes: nodes,
+        count: nodes.size(),
+        summary: [
+            total: nodes.size(),
+            byNodeState: stateCounts
+        ],
+        radioHealthy: parsed?.healthy == true,
+        region: parsed?.region,
+        zwaveIP: parsed?.zwaveIP == true,
+        isRadioUpdateNeeded: parsed?.isRadioUpdateNeeded == true,
+        secureJoinActive: (parsed?.secureJoin ?: 0) != 0,
+        updateInProgress: parsed?.updateInProgress == true,
+        endpoint: endpoint
+    ]
+
+    mcpLog("info", "hub-admin", "Retrieved Z-Wave node details (${nodes.size()} nodes)")
+    return result
+}
+
+/**
+ * Safe device room accessor. `device.roomName` can throw on some firmware
+ * versions or for virtual devices without a room; wrap defensively.
+ */
+private String safeDeviceRoom(device) {
+    if (device == null) return null
+    try {
+        return device.roomName
+    } catch (Exception ignore) {
+        return null
+    }
+}
+
 def toolGetZigbeeDetails(args) {
     requireHubAdminRead()
 
@@ -5185,42 +5182,12 @@ def toolGetHubLogs(args) {
     def limit = Math.min(args.limit ?: 100, maxLimit)
     def levelFilter = args.level
     def sourceFilter = args.source
-    def deviceIdFilter = args.deviceId?.toString()?.trim()
-    def appIdFilter = args.appId?.toString()?.trim()
 
-    if (deviceIdFilter && appIdFilter) {
-        throw new IllegalArgumentException("deviceId and appId are mutually exclusive: set only one")
-    }
-
-    // Server-side scoping: the hub's /logs/past/json endpoint accepts ?type=dev&id=<N>
-    // or ?type=app&id=<N> to filter at the source (same mechanism the UI's device- and
-    // app-specific log pages use). Much cheaper than returning the whole buffer and
-    // filtering client-side when the caller only wants one device/app. The level and
-    // source filters plus the limit below still apply client-side on top of the scoped
-    // result; they are not replaced by deviceId/appId.
-    //
-    // Both ids must be validated before the HTTP call. The hub returns 200 OK with an
-    // empty array for unknown or non-numeric ids, which would otherwise be indistinguishable
-    // from a real device that simply has no log entries.
-    def query = null
-    if (deviceIdFilter) {
-        def device = findDevice(deviceIdFilter)
-        if (!device) {
-            throw new IllegalArgumentException("Device not found: ${deviceIdFilter}")
-        }
-        query = [type: "dev", id: deviceIdFilter]
-    } else if (appIdFilter) {
-        if (!appIdFilter.isInteger()) {
-            throw new IllegalArgumentException("appId must be numeric: ${appIdFilter}")
-        }
-        query = [type: "app", id: appIdFilter]
-    }
-
-    mcpLog("info", "monitoring", "Fetching hub logs (level=${levelFilter}, source=${sourceFilter}, deviceId=${deviceIdFilter}, appId=${appIdFilter}, limit=${limit})")
+    mcpLog("info", "monitoring", "Fetching hub logs (level=${levelFilter}, source=${sourceFilter}, limit=${limit})")
 
     def responseText = null
     try {
-        responseText = hubInternalGet("/logs/past/json", query, 30)
+        responseText = hubInternalGet("/logs/past/json", null, 30)
     } catch (Exception e) {
         mcpLog("error", "monitoring", "Failed to fetch hub logs: ${e.message}")
         return [logs: [], error: "Failed to fetch hub logs: ${e.message}", count: 0]
@@ -5241,16 +5208,6 @@ def toolGetHubLogs(args) {
         mcpLog("debug", "monitoring", "Hub logs response not JSON, falling back to line-split: ${e.message}")
         logArray = responseText.split("\n").toList()
     }
-
-    // Hub returns chronological order (oldest-first). Callers overwhelmingly want
-    // the most recent N entries — reverse so the limit trims the tail of the buffer
-    // rather than the head. Guard against non-List parse results (a String or Map
-    // from the newline-split fallback or a firmware variant) since List.reverse()
-    // only makes sense on the array case.
-    if (!(logArray instanceof List)) {
-        return [logs: [], error: "Unexpected log format from hub", count: 0]
-    }
-    logArray = logArray.reverse()
 
     def totalParsed = logArray.size()
     for (logEntry in logArray) {
