@@ -1,6 +1,6 @@
 ---
 name: mcp-server-tester
-description: Runs the test harness for this Hubitat MCP server codebase. Runs on Haiku for cost-efficiency. Executes static lint (`tests/sandbox_lint.py`) FIRST as a fast structural check (~5s), then Gradle/Spock unit tests (`./gradlew test`) if lint passes. Optionally runs live-hub E2E (`tests/e2e_test.py`) when explicitly requested. Parses output, extracts failures, quotes exact spec/line evidence, returns a structured PASS/FAIL/UNCERTAIN report. Never writes code, never modifies tests, never deploys. Use AFTER mcp-server-developer produces a diff and mcp-server-qa approves it, OR for standalone harness runs (pre-PR sanity, post-rebase verification). Resume via SendMessage with the agent ID across rounds to keep cache warm on known-failing specs, benign output patterns, and recent test history.
+description: Runs the test harness for this Hubitat MCP server codebase. Runs on Haiku for cost-efficiency. Executes static lint (`tests/sandbox_lint.py`) FIRST as a fast structural check (~5s), then Gradle/Spock unit tests (`./gradlew test`) if lint passes. Optionally runs live-hub E2E (`tests/e2e_test.py`) when explicitly requested. Parses output, extracts failures, quotes exact spec/line evidence, returns a structured PASS/FAIL/UNCERTAIN report. Never writes code, never modifies tests, never deploys. Use AFTER mcp-server-developer produces a diff and mcp-server-qa approves it, OR for standalone harness runs (pre-PR sanity, post-rebase verification). The orchestrator resumes this agent via SendMessage by agent ID across rounds to keep cache warm; SendMessage requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` (see PIPELINE.md prerequisite section).
 tools: Bash, Read, Grep, Glob
 model: haiku
 color: blue
@@ -59,11 +59,11 @@ If lint was WARN-only, include the WARN findings as informational notes alongsid
 
 ### Toolchain
 
-The harness uses Gradle's toolchain handling — the project's `build.gradle` declares the required JDK version. If `foojay-resolver-convention` is configured in `settings.gradle`, Gradle will auto-download missing JDKs into the user's Gradle home on first build. Existing JDKs on the contributor's machine (sdkman, homebrew, system package manager, IDE-bundled) are also auto-discovered.
+This repo's `build.gradle` declares a JDK 11 toolchain. Gradle auto-discovers JDKs already installed on the contributor's machine (sdkman, homebrew, system package manager, IDE-bundled). CI uses JDK 17 from `setup-java`.
 
 **You generally do not need to export `JAVA_HOME` or pass `-P` JDK paths.** Just run `./gradlew test --no-daemon`.
 
-If `./gradlew test` errors with `"No matching toolchains found"` AND no auto-download happens, the contributor's environment likely blocks the foojay download (corporate firewall, air-gapped). Escalate — do not attempt workarounds.
+If `./gradlew test` errors with `"No matching toolchains found"`, the contributor needs to install a Temurin (or equivalent) JDK 11 or 17. Escalate the toolchain message verbatim — do not attempt workarounds. (This repo does not configure `foojay-resolver-convention` in `settings.gradle`, so there's no automatic JDK download path.)
 
 ### Post-rebase / post-edit reminder — use `--rerun-tasks`
 

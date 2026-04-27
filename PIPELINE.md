@@ -6,6 +6,28 @@ For project conventions, architecture, safety gates, and the substantive contrib
 
 ---
 
+## Prerequisite: agent-teams flag
+
+The resume-via-`SendMessage` mechanism (Rule 1) requires Claude Code's experimental agent-teams flag to be enabled. Set it in `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  }
+}
+```
+
+Per [Anthropic's subagent docs](https://code.claude.com/docs/en/sub-agents#resume-subagents): *"The `SendMessage` tool is only available when [agent teams](/en/agent-teams) are enabled via `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`."*
+
+History worth knowing: pre-Claude-Code-2.1.77, subagent resume worked unflagged via an `Agent({resume: <id>})` parameter. That parameter was removed in 2.1.77 in favor of `SendMessage`. As of current versions, `SendMessage` is the only resume path AND it requires the flag — so the flag is a hard prerequisite for any in-session subagent resume.
+
+**Without the flag**: the pipeline still works, but every round is a fresh `Agent({...})` dispatch with full re-briefing context. The Sonnet-for-dev / Haiku-for-tester-and-ops cost savings still apply (those don't depend on the flag), but the resume-cache savings (~60–70% input tokens preserved across rounds) are forfeit. Cost claims below assume the flag is enabled; without it, expect savings closer to 50–60% of full-Opus rather than 30–40%.
+
+**Restart Claude Code** after editing `settings.json` for the flag to take effect.
+
+---
+
 ## The pipeline (HARD rule)
 
 **Every code change goes through this pipeline. Do not skip steps.**
@@ -107,11 +129,11 @@ Four agents, each tuned to a model tier matching its work shape. Anchored cost r
 | `mcp-server-tester` | Haiku | Mechanical: invoke `./gradlew test` + `sandbox_lint.py`, parse output, return ~1KB structured summary. Test-output-dominated work (Gradle logs, Spock failures, JUnit XML) is where Haiku saves most cost | [`.claude/agents/mcp-server-tester.md`](.claude/agents/mcp-server-tester.md) |
 | `mcp-server-operations` | Haiku | Mechanical: backup → upload → `update_app_code` → fetch logs → parse → structured PASS/FAIL. Same input-heavy / mechanical-output shape as tester. Only used in the with-MCP context | [`.claude/agents/mcp-server-operations.md`](.claude/agents/mcp-server-operations.md) |
 
-**Total**: iterative work through this pipeline runs at roughly **30-40% of the cost of doing everything in the main Opus session**, primarily because:
-- Sonnet for code-writing rather than Opus
-- Haiku for log-dominated test/deploy work
-- QA reads diffs (small) not whole files
-- Resume-by-ID preserves agent caches across rounds (see Rule 1)
+**Total**: iterative work through this pipeline targets roughly **30-40% of the cost of doing everything in the main Opus session** (with the agent-teams flag enabled — see Prerequisite section). Without the flag the resume-cache savings drop out and you should expect roughly 50-60% of full-Opus instead. The savings come from:
+- Sonnet for code-writing rather than Opus (always applies)
+- Haiku for log-dominated test/deploy work (always applies)
+- QA reads diffs (small) not whole files (always applies)
+- Resume-by-ID preserves agent caches across rounds (only with flag enabled — see Rule 1)
 
 ---
 
@@ -129,13 +151,18 @@ c. If the recipient's prior run has already exited, the runtime **resumes the ag
 
 d. **Only then** dispatch a fresh `Agent({ name: ..., ... })` with full re-briefing context (file paths, task recap, all prior QA/tester findings the agent needs, the specific delta being asked for).
 
-**Note on the `name:` parameter:** the `name:` field in `Agent({name: 'dev', ...})` is a human-readable label for the dispatch (visible in transcripts/UI), but it does NOT make the agent addressable by that name in `SendMessage`. The in-environment SendMessage tool description may say *"refer to teammates by name, never by UUID"* — that's correct for **agent teams** (TeamCreate-style coordination) but **not** for single-session subagent resume. For subagent resume, ALWAYS use the agent ID. Using the wrong addressing (name instead of ID) consistently fails — every name-based send returns `"No agent named '...' is currently addressable"` and forces a fresh dispatch, defeating the cache-preservation purpose entirely.
+**Two addressing modes — pick the right one:**
+
+- **Subagent resume** (what this pipeline uses): when an agent is spawned via `Agent({subagent_type, name, prompt})`, address it by the **agent ID** returned in the dispatch result. Per [Anthropic's subagent docs](https://code.claude.com/docs/en/sub-agents#resume-subagents): *"When a subagent completes, Claude receives its agent ID. Claude uses the SendMessage tool with the agent's ID as the `to` field to resume it."* The `name:` you passed to `Agent({...})` is a human-readable label for the transcript/UI, not an addressable handle.
+- **Agent-team teammates** (different surface, not used by this pipeline): when teammates are spawned within a `TeamCreate`-style team, the lead addresses them by name. Don't conflate this case with subagent resume.
+
+If `SendMessage` returns `"No agent named '<X>' is currently addressable"`, you're in the subagent case but addressing by name — switch to the agent ID.
 
 **Detection heuristic:** if you sent a SendMessage and want to know whether the agent is alive: if `SendMessage` itself returned `success: false`, the session is gone — fresh-dispatch immediately. If it returned success but no completion notification arrives in a reasonable window (~60s for trivial follow-ups, ~3min for code edits), assume the agent exited and re-dispatch fresh.
 
 **Re-dispatch must re-supply context:** a fresh agent has no memory of prior rounds. The re-briefing prompt MUST include: the file paths, the task recap, all prior QA/tester findings the agent needs, and the specific delta being asked for. Copy-paste from the SendMessage body you were about to send, plus enough preamble to orient cold.
 
-**Why this matters:** resume preserves ~60-70% input tokens via warm cache (the MCP server source is several thousand lines — reading it fresh every round is expensive). Fresh dispatches reload everything. **Never default to fresh just because it's easier to compose** — that silently burns the cache savings the pipeline was designed to capture.
+**Why this matters:** resume preserves ~60-70% input tokens via warm cache (the MCP server source is ~8,800 lines and the rule app another ~4,000 — reading them fresh every round is expensive). Fresh dispatches reload everything. **Never default to fresh just because it's easier to compose** — that silently burns the cache savings the pipeline was designed to capture.
 
 ### 2. Always run QA before tester or deploy
 
@@ -162,9 +189,9 @@ Example (dispatching dev resume immediately after):
 - **Operations** (with-MCP context only) backs up the hub, uploads the source, calls `update_app_code`, fetches logs, returns PASS / FAIL / UNCERTAIN. Does NOT modify code, does NOT make architectural decisions.
 - **Main (orchestrator, you)** dispatches, summarizes findings to user, makes calls on ambiguous cases (tester UNCERTAIN, dev-QA disagreement), handles commit/push/PR under the global preview-before-publish rule, owns the deploy decision.
 
-### 5. Iteration cap: 3 rounds
+### 5. Iteration cap: 3 rounds (on the same finding category)
 
-If QA flags BLOCKING on 3 consecutive rounds OR tester returns FAIL after 2 rounds of dev fixes on the same specs, escalate to the user. Usually means the spec is wrong, the task is under-specified, or there's an infrastructure gap (e.g., a sandbox-classloader issue requiring harness work).
+If QA flags BLOCKING on 3 consecutive rounds **on findings that share root cause with a prior round's finding** (same file/line, same checklist item, same pattern) OR tester returns FAIL after 2 rounds of dev fixes on the same specs, escalate to the user. The cap counts repeats; new unrelated BLOCKINGs (different files, different checklist categories) reset the counter. Repeating cap usually means the spec is wrong, the task is under-specified, or there's an infrastructure gap (e.g., a sandbox-classloader issue requiring harness work).
 
 ### 6. Honest pushback on disagreements
 
@@ -192,9 +219,31 @@ Under the global preview-before-publish rule, any GitHub PR comment, review repl
 
 ---
 
+## When NOT to use the pipeline
+
+Skip the four-agent flow for:
+- Trivial single-line edits (typo in a comment, one-character constant change at user request)
+- Doc-only changes (unless they span many files or risk count-drift across surfaces — then dispatch dev for consistency)
+- Reading code / answering questions about behavior — just read directly
+- Pre-PR tester-only runs — dispatch tester alone (no dev/QA)
+
+Use the pipeline for:
+- New tools or gateways
+- Bug fixes beyond one-line typos
+- Refactors touching multiple functions
+- Changes to safety gates / dispatch plumbing / MCP protocol code
+- Address-review-feedback rounds on open PRs
+- Any code that touches optional platform helpers (`hubitat.helper.RMUtils`, etc.)
+
+When in doubt, dispatch the pipeline — the over-cost of a small change going through QA is dwarfed by the under-cost of a bug shipping because QA was skipped.
+
+---
+
 ## Two deployment contexts
 
 ### A. With Hubitat MCP server (maintainer + admin contributors)
+
+The operations agent requires the Hubitat MCP server to be configured in the contributor's Claude Code MCP config (typically declared in user-level `~/.claude.json` or project-level `.claude/settings.json` — see Hubitat MCP server's user-facing setup docs). If `mcp__hubitat__*` tools aren't available in your session, you're in the without-MCP context (B) below.
 
 After QA + tester PASS, dispatch `mcp-server-operations`. It handles the deploy + verify cycle and returns a structured PASS/FAIL/UNCERTAIN report. The agent needs:
 - Source file path on disk

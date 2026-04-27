@@ -2,7 +2,7 @@
 
 This file is auto-loaded by Claude Code (and similar AI coding agents that respect the convention) at the start of every session in this repo. It exists to point you at the right docs for what you're trying to do — not to duplicate them.
 
-**Human contributors don't need this file.** It's purely AI-tooling orientation. If you're a human reading this for project understanding, start with [`SKILL.md`](SKILL.md) — that's the canonical contributor guide.
+**Human contributors can skip this file** — it's purely AI-tooling orientation. The canonical guide for everyone (humans and AI) is [`SKILL.md`](SKILL.md).
 
 ---
 
@@ -16,7 +16,7 @@ A Hubitat Elevation SmartApp that exposes a Hubitat hub's devices, rules, and ad
 
 If the user asks you to **write, modify, refactor, fix, test, deploy, or PR code in this repo**, read [`PIPELINE.md`](PIPELINE.md) before editing. It documents the multi-agent dispatch protocol (developer / QA / tester / operations), iteration discipline, deployment context, and cost-conserving resume rules.
 
-Trigger phrases that indicate you should load it: *"write a tool"*, *"add a feature"*, *"fix the bug"*, *"refactor"*, *"update the helper"*, *"run tests"*, *"deploy to hub"*, *"open a PR"*, *"address Gemini"*, *"apply the review"*.
+Trigger phrases that indicate you should load it: *"write a tool"*, *"add a feature"*, *"fix the bug"*, *"refactor"*, *"update the helper"*, *"run tests"*, *"deploy to hub"*, *"open a PR"*, *"address Gemini"*, *"apply the review"*. Also: any task that explicitly mentions one of the sub-agents (`mcp-server-developer`, `mcp-server-qa`, `mcp-server-tester`, `mcp-server-operations`) — those agents reference PIPELINE.md as their dispatch context.
 
 `PIPELINE.md` is intentionally NOT auto-loaded — it's a few-tens-of-KB and only relevant when doing code work. Sessions that just answer questions don't need it.
 
