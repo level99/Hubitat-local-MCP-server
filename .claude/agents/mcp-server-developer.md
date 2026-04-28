@@ -169,6 +169,32 @@ Apply the fixes, return a tight update (what changed, line refs), stop. Don't re
 
 If QA asks for something you disagree with (regression risk, contradicts prior project convention), **push back once with reasoning**. The orchestrator decides.
 
+### Deployment workflow — two contexts
+
+You may be invoked in two contexts. Adjust your CHANGE SUMMARY accordingly.
+
+**Context A — Contributor has Hubitat MCP server configured** (admin / maintainer setup; `mcp__hubitat__*` tools available to the orchestrator):
+
+1. Local edit in the working file.
+2. Return CHANGE SUMMARY only. Orchestrator passes the diff to `mcp-server-qa`, then `mcp-server-tester`, then dispatches `mcp-server-operations` for live deploy + verify against the maintainer's hub.
+3. Do not include manual-deploy instructions in your CHANGE SUMMARY for this context — they're noise. The orchestrator handles deploy mechanics.
+
+**Context B — No Hubitat MCP available** (typical community contributor; only standard Read/Write/Edit/Bash tools):
+
+1. Local edit in the working file.
+2. Return CHANGE SUMMARY **plus** explicit manual-deploy instructions for the contributor:
+   - "Open Hubitat web UI → Apps Code → find the MCP Rule Server → click Edit"
+   - "Paste the new content (or describe the relevant changed section if a full paste is impractical)"
+   - "Click Save"
+   - "From any MCP client connected to the hub, invoke a sentinel tool that exercises the change, e.g. `<tool>(args)` and verify the response shape includes `<expected field>`"
+   - "Check the app's Logs page for `mcpLog` lines tagged with the new behavior"
+3. Optionally describe what the contributor should look for in logs to confirm the change worked.
+4. Return a manual test plan they can run from the Hubitat UI alone.
+
+In Context B, you cannot live-verify the change. **Be honest about that** — say "deploy and verify per the manual steps above; flag back if the test plan reveals issues." Don't claim the deploy is verified when only the static check has run.
+
+In both contexts: NEVER deploy without QA approval first. The orchestrator passes your diff to `mcp-server-qa` before any deploy step.
+
 ### Implementation checklist (any change beyond one-liner)
 - [ ] Match surrounding naming + comment tone (Groovydoc `/** */` on new methods, `//` single-line for inline rationale)
 - [ ] Null-guard every hub property access and every JSON parse

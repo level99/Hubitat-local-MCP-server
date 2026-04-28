@@ -26,6 +26,8 @@ History worth knowing: pre-Claude-Code-2.1.77, subagent resume worked unflagged 
 
 **Restart Claude Code** after editing `settings.json` for the flag to take effect.
 
+**Empirically verified 2026-04-27**: removing the flag from `settings.json` and restarting Claude Code → `SendMessage` / `TeamCreate` / `TeamDelete` tools disappear from the session's tool catalog ("MCP server disconnected" notice). Restoring the flag and restarting → tools reappear. The flag is a hard requirement; the docs are not stale.
+
 ---
 
 ## The pipeline (HARD rule)
@@ -125,15 +127,27 @@ Four agents, each tuned to a model tier matching its work shape. Anchored cost r
 | Agent | Model | Why this tier | Spec |
 |---|---|---|---|
 | `mcp-server-developer` | Sonnet | Code-writing workhorse — high output volume; ~5× cheaper output than Opus while easily handling Groovy + project conventions when primed by spec | [`.claude/agents/mcp-server-developer.md`](.claude/agents/mcp-server-developer.md) |
-| `mcp-server-qa` | Opus | Input-heavy review work, low output (structured findings); reasoning-quality matters more than throughput; reading diffs ≠ reading whole files so per-round cost is bounded | [`.claude/agents/mcp-server-qa.md`](.claude/agents/mcp-server-qa.md) |
+| `mcp-server-qa` | Sonnet (default), Opus on demand | Most code review fits Sonnet's reasoning depth — diff-scope reading, checklist application, file:line citation, sibling-tool comparison. Orchestrator escalates to Opus by passing `model: 'opus'` in the dispatch for: large refactors (>500 lines / >10 files), safety-gate semantic changes, dispatch plumbing or MCP protocol edits, security-sensitive paths (`update_app_code`, `sanitize()`, OAuth), or architecturally novel patterns. See the agent spec's "Why Sonnet" section for the full escalation list | [`.claude/agents/mcp-server-qa.md`](.claude/agents/mcp-server-qa.md) |
 | `mcp-server-tester` | Haiku | Mechanical: invoke `./gradlew test` + `sandbox_lint.py`, parse output, return ~1KB structured summary. Test-output-dominated work (Gradle logs, Spock failures, JUnit XML) is where Haiku saves most cost | [`.claude/agents/mcp-server-tester.md`](.claude/agents/mcp-server-tester.md) |
 | `mcp-server-operations` | Haiku | Mechanical: backup → upload → `update_app_code` → fetch logs → parse → structured PASS/FAIL. Same input-heavy / mechanical-output shape as tester. Only used in the with-MCP context | [`.claude/agents/mcp-server-operations.md`](.claude/agents/mcp-server-operations.md) |
 
-**Total**: iterative work through this pipeline targets roughly **30-40% of the cost of doing everything in the main Opus session** (with the agent-teams flag enabled — see Prerequisite section). Without the flag the resume-cache savings drop out and you should expect roughly 50-60% of full-Opus instead. The savings come from:
+**Total**: iterative work through this pipeline targets roughly **25-35% of the cost of doing everything in the main Opus session** with the agent-teams flag enabled and QA on Sonnet by default (was ~30-40% under the prior Opus-QA framing — Sonnet QA cuts another ~10 percentage points). Without the flag the resume-cache savings drop out and you should expect roughly 45-55% of full-Opus. The savings come from:
+
 - Sonnet for code-writing rather than Opus (always applies)
+- Sonnet for QA by default (always applies; Opus on demand)
 - Haiku for log-dominated test/deploy work (always applies)
 - QA reads diffs (small) not whole files (always applies)
-- Resume-by-ID preserves agent caches across rounds (only with flag enabled — see Rule 1)
+- Resume-by-ID preserves agent caches across rounds (only with flag enabled, only within Anthropic's cache TTL — see Rule 1)
+
+**Token-cost attribution (input-side, where ~97% of QA tokens live).** Per the `mcp-server-qa` agent's self-analysis on a typical multi-round PR:
+
+- ~48% accumulated transcript carryover from the prior round
+- ~29% additional carryover from rounds further back
+- ~15% static priming (agent definition + tool schemas + auto-injected CLAUDE.md)
+- ~3% output verdict
+- ~5% genuinely fresh content for the current review
+
+**Output is only ~3% of total. Do not reduce verdict verbosity to "save tokens"** — output fidelity is the developer agent's signal for what to fix; cutting it sacrifices clarity for negligible savings. The leverage is on the input side: model-tier choice (Sonnet QA applies multiplicatively to all input + output), cache hygiene (the resume-vs-fresh time table in Rule 1), and tighter briefs (don't ask for "verify all 13 places" if a representative sample produces the same correctness signal).
 
 ---
 
@@ -147,7 +161,21 @@ a. **Capture the agent ID** from each `Agent({...})` dispatch result — the res
 
 b. `SendMessage({ to: '<agentId>', message: "..." })` — **addresses by agent ID, NOT by the descriptive `name:` parameter.** Per [code.claude.com/docs/en/sub-agents#resume-subagents](https://code.claude.com/docs/en/sub-agents#resume-subagents): *"When a subagent completes, Claude receives its agent ID. Claude uses the SendMessage tool with the agent's ID as the `to` field to resume it."*
 
-c. If the recipient's prior run has already exited, the runtime **resumes the agent from its transcript in the background** (`SendMessage` returns `success: true` with message *"had no active task; resumed from transcript in the background"*). Same-session agents from many hours ago are typically still resumable; transcript-cached state replays cheaply. Only when the transcript itself has been evicted does `SendMessage` return `success: false`.
+c. If the recipient's prior run has already exited, the runtime **resumes the agent from its transcript in the background** (`SendMessage` returns `success: true` with message *"had no active task; resumed from transcript in the background"*). Same-session agents from many hours ago are typically still resumable; transcript-cached state replays. Only when the transcript itself has been evicted does `SendMessage` return `success: false`.
+
+   **Verified live 2026-04-27**: SendMessage to a developer agent that had completed ~6 hours earlier in the same session returned `success: true` with the "resumed from transcript" message. The agent processed the new message and replied in 2.1 seconds, zero tool calls. Same-session transcript-resume holds across multi-hour gaps.
+
+   **Cache TTL caveat — when "resume" still costs full input tokens.** Anthropic's prompt cache TTL is 5 min default (up to 1 hr with explicit cache-breakpoint hints). Transcript-resume preserves the agent's *logical state* indefinitely within a session, but the *token cache* — which is what gives us the 60–70% input-token savings on resume — is bounded by that TTL. Decision table for resume-vs-fresh:
+
+   | Time since same-role last dispatch | Topic relevance | Action |
+   |---|---|---|
+   | <5 min | Same topic family | `SendMessage` resume — cache likely warm |
+   | 5–30 min | Same topic family | Resume if accumulated transcript is small; fresh if large |
+   | 5–30 min | Unrelated topic | Fresh `Agent({...})` dispatch |
+   | >30 min | Any | Fresh dispatch — token cache definitely expired |
+   | New Claude Code session | Any | Fresh dispatch — no cache, no transcript |
+
+   "Resume" still works for logical-state continuity past 30 min, but you forfeit the cost savings the resume rule was designed to capture.
 
 d. **Only then** dispatch a fresh `Agent({ name: ..., ... })` with full re-briefing context (file paths, task recap, all prior QA/tester findings the agent needs, the specific delta being asked for).
 
@@ -332,6 +360,28 @@ whether previously-failing specs now pass.
 })
 ```
 
+### QA dispatch with Opus override (complex review)
+
+```
+Agent({
+  subagent_type: 'mcp-server-qa',
+  name: 'qa',
+  model: 'opus',  // override default Sonnet — diff refactors safety-gate semantics
+  prompt: `
+Review the following diff (touches requireHubAdminWrite + the gate-call
+ordering inside 5 tool methods + the backup-before-mutate path):
+
+<diff>
+
+Particularly: validate that gate is still FIRST inside each tool*(),
+backup is still called before any destructive op, and confirm-flag flow
+hasn't been short-circuited.
+  `
+})
+```
+
+The default `model: sonnet` works for typical PRs; the override is reserved for the trigger list documented in the agent's "Why Sonnet" section.
+
 ---
 
 ## When this file is wrong
@@ -344,5 +394,7 @@ Concrete signals that an update is overdue:
 - An outbound message had to be rewritten because the format described here is stale
 - `SendMessage` keeps returning `success: false` despite the agent allegedly being live (typically: name vs. agent ID drift, or runtime resume-window changed)
 - A new failure mode keeps recurring and the rules don't address it
+
+**Date your verifications inline.** When you (a future contributor or agent) confirm or refute a runtime behavior described here, append a dated empirical observation right next to the rule (`Verified live YYYY-MM-DD: <what you did and what happened>`). The cumulative dated record helps future readers judge staleness — Anthropic ships behavior changes silently, and an undated rule that "used to work" gives no signal when it stopped. Same pattern of provenance Wikipedia uses for citations: claims with dates are auditable; claims without are folklore.
 
 Don't gather drift into a "documentation pass later" — fix in-session. Five-minute file edit beats hours of re-debugging the same wrong-pattern next time.

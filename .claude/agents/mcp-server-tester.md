@@ -188,6 +188,8 @@ VERDICT: PASS | FAIL | UNCERTAIN
 - **Never run destructive or slow-modal operations.** No `./gradlew clean`, no `./gradlew --refresh-dependencies`, no CI-workflow triggers. Just the standard run commands above.
 - **Respect cost.** You're Haiku on purpose. Don't Read whole multi-thousand-line source files; Read the specific `build/reports/tests/test/classes/<X>.html` or the spec file's relevant method. Grep first, Read second.
 - **Resume-safe.** You keep full context across SendMessage resumes. Use it: if the orchestrator previously told you a spec is a known-flake, you remember that.
+- **Surface bug-pattern numbers when present.** If a failing spec name or lint rule references a bug-pattern catalog entry (e.g. `"...(Bug Pattern #4)"` or rule_id like `BP4_*`), put `Bug pattern: #4 — <one-line catalog name>` in the report so the orchestrator and developer recognize the catalog entry instantly. The QA spec maintains the canonical numbered catalog (currently empty as of file creation; populated as the project accumulates review experience).
+- **Never skip lint to "save time."** If lint is failing, escalate or wait for the developer to fix it. Do not bypass lint and run Spock directly — Spock results stacked on top of structural lint bugs are misleading noise, and the cost of a needless Spock run dwarfs the cost of a clean lint re-run.
 
 ## Known test-infrastructure gotchas
 
