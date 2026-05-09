@@ -4,13 +4,13 @@ Detailed reference for MCP Rule Server tools. Consult this when tool description
 
 ## Category Gateway Proxy (v0.8.0+)
 
-As of v0.8.0, the server uses **domain-named gateways** to organize lesser-used tools behind gateway tools. The MCP `tools/list` shows 35 items (23 core + 12 gateways) covering 90 total tools. Use `search_tools` to find any tool by natural language query.
+As of v0.8.0, the server uses **domain-named gateways** to organize lesser-used tools behind gateway tools. The MCP `tools/list` shows 35 items (23 core + 12 gateways) covering 92 total tools. Use `search_tools` to find any tool by natural language query.
 
 **How to use a gateway:**
 1. Call the gateway with no arguments to see full parameter schemas for all its tools
 2. Call with `tool='<tool_name>'` and `args={...}` to execute a specific tool
 
-**Gateways:** `manage_rules_admin` (5), `manage_hub_variables` (4), `manage_rooms` (5), `manage_destructive_hub_ops` (3), `manage_apps_drivers` (6), `manage_app_driver_code` (7), `manage_logs` (8), `manage_diagnostics` (11), `manage_files` (4), `manage_installed_apps` (4), `manage_native_rules_and_apps` (9), `manage_mcp_self` (1)
+**Gateways:** `manage_rules_admin` (5), `manage_hub_variables` (4), `manage_rooms` (5), `manage_destructive_hub_ops` (3), `manage_apps_drivers` (6), `manage_app_driver_code` (7), `manage_logs` (8), `manage_diagnostics` (11), `manage_files` (4), `manage_installed_apps` (6), `manage_native_rules_and_apps` (9), `manage_mcp_self` (1)
 
 All safety gates (Hub Admin Read/Write, confirm, backup checks) are preserved — they are enforced in the handler functions, not the dispatch layer.
 
@@ -340,9 +340,9 @@ Files stored locally on hub at `http://<HUB_IP>/local/<filename>`
 
 ## Built-in App Tools
 
-Tools in `manage_installed_apps` and `manage_native_rules_and_apps` gateways have mixed gate requirements. `list_installed_apps` and `get_device_in_use_by` require the **Enable Built-in App Tools** toggle (`requireBuiltinApp`). `get_app_config` and `list_app_pages` require **Hub Admin Read** (`requireHubAdminRead`). `manage_native_rules_and_apps` tools require the **Enable Built-in App Tools** toggle for reads and **Hub Admin Write** (`requireHubAdminWrite`) for the CRUD path (`create_native_app`, `update_native_app`, `delete_native_app`); Hub Admin Write also enforces a backup-within-24h gate before any write. If the user sees "Built-in App Tools are disabled", "Hub Admin Read is disabled", or "Hub Admin Write is disabled" errors, direct them to the MCP Rule Server app settings page to enable the relevant toggle. Note: Hub Admin Write operations additionally require a hub backup within the last 24 hours -- if the write gate blocks with a backup-age message, use `create_hub_backup` first.
+Tools in `manage_installed_apps` and `manage_native_rules_and_apps` gateways have mixed gate requirements. `list_installed_apps` and `get_device_in_use_by` require the **Enable Built-in App Tools** toggle (`requireBuiltinApp`). `get_app_config`, `list_app_pages`, `list_hpm_packages`, and `get_hpm_drift` require **Hub Admin Read** (`requireHubAdminRead`). `manage_native_rules_and_apps` tools require the **Enable Built-in App Tools** toggle for reads and **Hub Admin Write** (`requireHubAdminWrite`) for the CRUD path (`create_native_app`, `update_native_app`, `delete_native_app`); Hub Admin Write also enforces a backup-within-24h gate before any write. If the user sees "Built-in App Tools are disabled", "Hub Admin Read is disabled", or "Hub Admin Write is disabled" errors, direct them to the MCP Rule Server app settings page to enable the relevant toggle. Note: Hub Admin Write operations additionally require a hub backup within the last 24 hours -- if the write gate blocks with a backup-age message, use `create_hub_backup` first.
 
-### manage_installed_apps (4 tools)
+### manage_installed_apps (6 tools)
 
 - **`list_installed_apps`** — enumerate ALL apps on the hub (built-in + user) with parent/child tree
   - `filter="all"` (default) | `"builtin"` | `"user"` | `"disabled"` | `"parents"` | `"children"`
@@ -366,6 +366,19 @@ Tools in `manage_installed_apps` and `manage_native_rules_and_apps` gateways hav
   - Unknown app types: returns the primary page only plus a note about consulting the app's source or Web UI for additional page names
   - Use this before `get_app_config` on multi-page apps to avoid guessing page names
   - Args: `appId` (required)
+
+- **`list_hpm_packages`** — list all packages tracked by Hubitat Package Manager (Hub Admin Read required)
+  - Returns each package's `manifestUrl`, `packageName`, `version`, `beta`, `author`, and component lists (`apps`, `drivers`, `files`)
+  - Each app/driver component: `id` (UUID), `name`, `required`, `version` (per-component, often null), `heID` (Hubitat internal code ID; null if never installed or removed outside HPM)
+  - File components: `id`, `name` only (no heID -- files go to File Manager, not the app/driver code store)
+  - `hpmAppId` is optional -- auto-discovered if omitted by scanning installed apps for `type='Hubitat Package Manager'`
+  - Note: reads HPM's stored state only; does NOT re-fetch live manifests from the internet
+
+- **`get_hpm_drift`** — cross-reference HPM-tracked packages against installed apps (Hub Admin Read required)
+  - Surfaces two signal types: `missing-required` (required component with null heID -- install incomplete or component removed) and `orphan-app` (heID tracked but app code absent from installed list -- deleted via Apps Code without HPM Uninstall)
+  - `packageFilter` (optional): case-insensitive substring match on `packageName`
+  - Returns `drift[]` array (packages with signals), `totalDriftSignals`, `summary` sentence, and `limitations` note
+  - Drift is heID-presence-only; source-code drift (post-install edits) and orphan-driver detection are not included
 
 ### manage_native_rules_and_apps (9 tools)
 

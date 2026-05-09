@@ -24,7 +24,7 @@ This app lets AI assistants like Claude control your Hubitat smart home through 
 
 > "What's the hub's health status?"
 
-Behind the scenes, the AI uses MCP tools to control devices, create automation rules, manage rooms, query system state, and administer the hub. The server exposes 90 tools total — 23 core tools are always visible, while 67 additional tools are organized behind 12 domain-named gateways to keep the tool list manageable. If your client handles long tool lists well, you can disable the gateways via the **Consolidate tools behind category gateways** setting and every tool is exposed individually instead. (Counts here describe the shipped catalog; the runtime count on `tools/list` varies based on enabled settings.)
+Behind the scenes, the AI uses MCP tools to control devices, create automation rules, manage rooms, query system state, and administer the hub. The server exposes 92 tools total — 23 core tools are always visible, while 69 additional tools are organized behind 12 domain-named gateways to keep the tool list manageable. If your client handles long tool lists well, you can disable the gateways via the **Consolidate tools behind category gateways** setting and every tool is exposed individually instead. (Counts here describe the shipped catalog; the runtime count on `tools/list` varies based on enabled settings.)
 
 ## Requirements
 
@@ -221,9 +221,9 @@ For free remote access without a Hubitat Cloud subscription:
 
 ## Features
 
-### MCP Tools (90 total — 35 on tools/list)
+### MCP Tools (92 total — 35 on tools/list)
 
-The server has 90 tools total. To keep the MCP `tools/list` manageable, **23 core tools** are always visible and **67 additional tools** are organized behind **12 domain-named gateways**. The AI sees 35 items on `tools/list` (23 + 12 gateways). Each gateway's description includes tool summaries (always visible to the AI), and calling a gateway with no arguments returns full parameter schemas on demand.
+The server has 92 tools total. To keep the MCP `tools/list` manageable, **23 core tools** are always visible and **69 additional tools** are organized behind **12 domain-named gateways**. The AI sees 35 items on `tools/list` (23 + 12 gateways). Each gateway's description includes tool summaries (always visible to the AI), and calling a gateway with no arguments returns full parameter schemas on demand.
 
 #### Core Tools (23) — Always visible on tools/list
 
@@ -447,7 +447,7 @@ Write/delete require Hub Admin Write + confirm.
 </details>
 
 <details>
-<summary><b>manage_installed_apps</b> (4) — Built-in app visibility and configuration</summary>
+<summary><b>manage_installed_apps</b> (6) — Built-in app visibility, configuration, and HPM package state</summary>
 
 | Tool | Description |
 |------|-------------|
@@ -455,8 +455,10 @@ Write/delete require Hub Admin Write + confirm.
 | `get_device_in_use_by` | Find all apps that reference a specific device (Room Lighting, Rule Machine, Groups, Mode Manager, dashboards, Maker API, etc.) |
 | `get_app_config` | Read an installed app's configuration page (Rule Machine, Room Lighting, Basic Rules, HPM, etc.) — sections, inputs, values. Multi-page apps via `pageName`. Read-only. Hub Admin Read. |
 | `list_app_pages` | List known page names for a multi-page app (HPM, Room Lighting, etc.). Returns curated directory + live primary page. Use before `get_app_config` on multi-page apps to avoid guessing page names. Hub Admin Read. |
+| `list_hpm_packages` | List all packages tracked by Hubitat Package Manager (name, version, beta flag, apps/drivers/files inventory with heIDs). Hub Admin Read. |
+| `get_hpm_drift` | Cross-reference HPM-tracked packages against installed apps to surface missing-required components and orphan apps. Hub Admin Read. |
 
-`list_installed_apps` and `get_device_in_use_by` require opt-in **Enable Built-in App Tools** setting. `get_app_config` and `list_app_pages` require Hub Admin Read.
+`list_installed_apps` and `get_device_in_use_by` require opt-in **Enable Built-in App Tools** setting. `get_app_config`, `list_app_pages`, `list_hpm_packages`, and `get_hpm_drift` require Hub Admin Read.
 
 </details>
 

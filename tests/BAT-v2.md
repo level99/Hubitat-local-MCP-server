@@ -1,6 +1,6 @@
 # Bot Acceptance Test (BAT) Suite — v2
 
-Updated for the installed-apps + Rule Machine interop + native CRUD architecture (23 core + 12 gateways = 35 on tools/list, 67 proxied, 90 total).
+Updated for the installed-apps + Rule Machine interop + native CRUD + HPM package state architecture (23 core + 12 gateways = 35 on tools/list, 69 proxied, 92 total).
 
 Comprehensive test scenarios for the Hubitat MCP Rule Server. Modeled after ha-mcp's BAT framework.
 
@@ -2275,14 +2275,14 @@ These operations are too destructive for automated testing. Test manually with e
 | Core tools on `tools/list` | 23 |
 | Gateways on `tools/list` | 12 |
 | Total visible on `tools/list` | 35 |
-| Tools proxied behind gateways | 67 |
-| Total tools in codebase | 90 |
+| Tools proxied behind gateways | 69 |
+| Total tools in codebase | 92 |
 
-**12 Gateways**: `manage_rules_admin` (5), `manage_hub_variables` (4), `manage_rooms` (5), `manage_destructive_hub_ops` (3), `manage_apps_drivers` (6), `manage_app_driver_code` (7), `manage_logs` (8), `manage_diagnostics` (11), `manage_files` (4), `manage_installed_apps` (4), `manage_native_rules_and_apps` (9), `manage_mcp_self` (1)
+**12 Gateways**: `manage_rules_admin` (5), `manage_hub_variables` (4), `manage_rooms` (5), `manage_destructive_hub_ops` (3), `manage_apps_drivers` (6), `manage_app_driver_code` (7), `manage_logs` (8), `manage_diagnostics` (11), `manage_files` (4), `manage_installed_apps` (6), `manage_native_rules_and_apps` (9), `manage_mcp_self` (1)
 
 ### Tool Coverage (non-destructive tools only)
 
-All 86 tools are covered by at least one test, excluding the destructive operations listed in the Excluded Tests table. Safe tools have standalone test coverage; destructive tools are documented for manual-only testing.
+All 88 tools are covered by at least one test, excluding the destructive operations listed in the Excluded Tests table. Safe tools have standalone test coverage; destructive tools are documented for manual-only testing.
 
 Sections 1-9 use explicit or semi-explicit tool references. Section 10 re-tests the same tool coverage through purely conversational language to measure whether the LLM can discover tools without being told which ones exist. Section 11 covers the built-in app integration tools.
 
@@ -2359,7 +2359,7 @@ Tools in this section have mixed gate requirements. `list_installed_apps` and `g
 }
 ```
 
-**Expected**: AI calls `manage_installed_apps` with no args, sees catalog of 2 tools (`list_installed_apps`, `get_device_in_use_by`) with full parameter schemas.
+**Expected**: AI calls `manage_installed_apps` with no args, sees catalog of 6 tools (`list_installed_apps`, `get_device_in_use_by`, `get_app_config`, `list_app_pages`, `list_hpm_packages`, `get_hpm_drift`) with full parameter schemas. The 2 Built-in App Tools (`list_installed_apps`, `get_device_in_use_by`) are hidden when that feature is disabled, leaving 4 tools visible.
 
 ### T206 — Gateway catalog discovery (manage_native_rules_and_apps)
 
@@ -2554,6 +2554,32 @@ This scenario validates that an agent landing on the wrong tool is efficiently r
 - AI receives "Rule not found" with no redirect hint (suggests `enableBuiltinApp` is disabled and the `/hub2/appsList` lookup couldn't run -- check hub settings)
 - AI follows the hint successfully but reports confusion about read vs write capabilities
 
+### T219a — list_hpm_packages: enumerate all HPM-tracked packages
+
+```json
+{
+  "test_prompt": "List all packages managed by Hubitat Package Manager, including their versions and component counts."
+}
+```
+
+**Expected**: AI calls `manage_installed_apps(tool='list_hpm_packages')` (hpmAppId auto-discovered). Returns `success=true`, `count` (number of packages), and `packages` array. Each entry has `packageName`, `version`, `beta`, `author`, `apps`, `drivers`, `files`. AI summarizes: count, names, and any beta packages.
+
+**Gate**: Hub Admin Read. If disabled, tool throws and AI reports the gate requirement.
+
+**Failure modes**: AI calls `get_app_config` with `pageName='prefPkgUninstall'` instead (works but slower and returns page-rendered HTML, not structured data). `list_hpm_packages` is the right tool for programmatic enumeration.
+
+### T219b — get_hpm_drift: surface drift signals
+
+```json
+{
+  "test_prompt": "Check my Hubitat Package Manager packages for drift -- are there any missing or orphaned components?"
+}
+```
+
+**Expected**: AI calls `manage_installed_apps(tool='get_hpm_drift')`. Returns `success=true`, `summary` sentence, `drift` array (may be empty), `totalDriftSignals`, and `limitations` note. AI interprets the summary and describes any drift signals found (type, packageName, componentName). If no drift, AI confirms the packages are clean and mentions the limitations (heID-presence-only, no source-hash detection).
+
+**Gate**: Hub Admin Read.
+
 ---
 
 ## Section 12: Developer Mode Tests
@@ -2659,7 +2685,7 @@ These tests exercise the Developer Mode self-administration surface — the `man
 
 Key differences from the original BAT.md (which targets the pre-v0.8.0 architecture):
 
-1. **Architecture**: 18 core + 8 gateways (26 total) → **23 core + 12 gateways (35 total, 90 tools)** post installed-apps + RM interop + native CRUD + list_app_pages + poll_until_attribute (was 21 core + 9 gateways / 30 total / 69 tools at v0.8.0)
+1. **Architecture**: 18 core + 8 gateways (26 total) → **23 core + 12 gateways (35 total, 92 tools)** post installed-apps + RM interop + native CRUD + list_app_pages + poll_until_attribute + HPM package state (was 21 core + 9 gateways / 30 total / 69 tools at v0.8.0)
 2. **Merged tools**: `enable_rule`/`disable_rule` → `custom_update_rule` (enabled=true/false); `create_virtual_device`/`delete_virtual_device` → `manage_virtual_device` (action enum)
 3. **Promoted to core**: `create_hub_backup`, `check_for_update`, `generate_bug_report`
 4. **Dissolved gateway**: `manage_hub_info` — radio details moved to `manage_diagnostics`, other tools merged into `get_hub_info` (core) or promoted
