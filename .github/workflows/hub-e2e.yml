@@ -666,10 +666,14 @@ jobs:
         id: run_e2e
         if: steps.gate.outputs.available == 'true'
         env:
-          # Defer per-test native-rule fixture deletes to the disarm step's force sweep (over
-          # WATCHDOG_URL, overlapping the restore-poll wait) instead of the test critical path.
+          # The full lane keeps per-test teardown ON (flag off) so the rule/child corpus stays flat
+          # for the whole run. Deferring ~50 fixture deletes to the end lets the corpus grow
+          # monotonically -- every later list/create/discovery scales with the accumulated children
+          # and ramps the hub into its per-app load limiter partway through the long full run. The
+          # focused/one-off lanes are short enough that accumulation never bites, so they keep the
+          # deferral (deletes off the test critical path, reaped by the disarm force sweep).
           # NOT set on the post-restore --cleanup-only step below, which stays the idempotent backstop.
-          E2E_DEFER_NATIVE_DELETES: '1'
+          E2E_DEFER_NATIVE_DELETES: ${{ steps.gate.outputs.lane == 'full' && '0' || '1' }}
           E2E_LANE: ${{ steps.gate.outputs.lane }}
           E2E_GROUPS: ${{ steps.gate.outputs.groups }}
           E2E_TESTS: ${{ steps.gate.outputs.tests }}
