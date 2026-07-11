@@ -9096,6 +9096,21 @@ def driverLegMarker() { return "DRIVER-LEG-MARKER-V1" }
                             deferred_ids.add(vid)
             except Exception as exc:
                 print(f"  [WARN] could not list Visual Rules for the deferred union (tracked ids still deferred): {exc}")
+            # hub_list_rules + the VRB list both miss classic-app CHILD instances -- a Button
+            # Controller child a walk test created (named "Button Controller-5.1: BAT_E2E_...") is
+            # neither an RM rule nor a VRB child, so it accumulates across runs (observed dragging
+            # the shared hub into 504s). scope=instances/filter=all is the only surface that returns
+            # child instances (with parentId); fold PREFIX-matched ones into the disarm force sweep.
+            try:
+                insts = self.client.call_tool("hub_list_apps", {"scope": "instances", "filter": "all"})
+                for a in (insts.get("apps", []) if isinstance(insts, dict) else []):
+                    iname = str(a.get("name") or a.get("label") or "")
+                    if PREFIX in iname and SCAFFOLD_PREFIX not in iname:
+                        iid = str(a.get("id") or "")
+                        if iid:
+                            deferred_ids.add(iid)
+            except Exception as exc:
+                print(f"  [WARN] could not list classic-app instances for the deferred union (tracked ids still deferred): {exc}")
             deferred_ids = sorted(deferred_ids)
             print(f"  Layer 4: deferring {len(deferred_ids)} native-rule delete(s) to the disarm sweep")
             # Hand the EXACT instance ids to the disarm sweep via File Manager so it force-deletes ONLY
@@ -9162,6 +9177,28 @@ def driverLegMarker() { return "DRIVER-LEG-MARKER-V1" }
                                 print(f"  [WARN] Visual Rule sweep delete failed for '{vname}': {exc}")
             except Exception as exc:
                 print(f"  [WARN] Visual Rule sweep failed: {exc}")
+            # Classic-app CHILD instances (Button Controller children etc.) that the RM-rule and
+            # VRB sweeps both miss: hub_list_rules lists only RM rules and _get_visual_rule only VRB
+            # children, so a PREFIX-named Button Controller child ("Button Controller-5.1: BAT_E2E_...")
+            # accumulates across runs (observed dragging the hub into 504s). scope=instances/filter=all
+            # is the only surface that returns child instances (with parentId); force-delete reaps them.
+            try:
+                insts = self.client.call_tool("hub_list_apps", {"scope": "instances", "filter": "all"})
+                for a in (insts.get("apps", []) if isinstance(insts, dict) else []):
+                    iname = str(a.get("name") or a.get("label") or "")
+                    if PREFIX in iname and SCAFFOLD_PREFIX not in iname:
+                        iid = str(a.get("id") or "")
+                        if iid:
+                            try:
+                                print(f"  Sweep: deleting classic-app instance '{iname}' (id={iid})")
+                                self.client.call_tool("hub_manage_rule_machine", {
+                                    "tool": "hub_delete_native_app",
+                                    "args": {"appId": iid, "force": True, "confirm": True},
+                                })
+                            except Exception as exc:
+                                print(f"  [WARN] classic-app instance sweep delete failed for '{iname}': {exc}")
+            except Exception as exc:
+                print(f"  [WARN] classic-app instance sweep failed: {exc}")
 
         # Layer 5: stranded mcptest throwaways. The @test("deadman") test installs 'Deadman Test
         # Target' (instance + code class), the @test("app_code_update") test creates the
